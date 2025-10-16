@@ -1,0 +1,554 @@
+import React, { useState } from 'react';
+import { Music, Users, ClipboardCheck, Mail, Download, Plus, X, Edit2, Save } from 'lucide-react';
+
+const MusicAuditionApp = () => {
+  const [activeTab, setActiveTab] = useState('register');
+  const [students, setStudents] = useState([]);
+  const [currentStudent, setCurrentStudent] = useState({
+    name: '',
+    email: '',
+    grade: '',
+    instrument: '',
+    experience: ''
+  });
+  const [evaluationStudent, setEvaluationStudent] = useState(null);
+  const [scores, setScores] = useState({});
+  const [loading, setLoading] = useState(false);
+  
+  // CONFIGURATION: Replace with your Google Apps Script Web App URL
+  const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbznqjTeVt400M8CyLZRdvCwP_0N6yHFplz4g_lC5-yajrGdarzX0cWCRnIxmDGBcOR-/exec';
+
+  // Evaluation criteria
+  const criteria = [
+    { id: 'tone', name: 'Tone Quality', max: 20 },
+    { id: 'technique', name: 'Technical Skills', max: 20 },
+    { id: 'rhythm', name: 'Rhythm & Timing', max: 20 },
+    { id: 'musicality', name: 'Musicality & Expression', max: 20 },
+    { id: 'sightReading', name: 'Sight Reading', max: 20 }
+  ];
+
+  const instruments = ['Flute', 'Clarinet', 'Saxophone', 'Trumpet', 'Trombone', 'Euphonium', 'Tuba', 'Percussion', 'Other'];
+  const grades = ['9th', '10th', '11th', '12th'];
+
+  // Load students on component mount
+  React.useEffect(() => {
+    loadStudents();
+  }, []);
+
+  // API call to Google Apps Script
+  const callScriptAPI = async (action, data = {}) => {
+    try {
+      setLoading(true);
+      const response = await fetch(SCRIPT_URL, {
+        method: 'POST',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action, ...data })
+      });
+      
+      const result = await response.json();
+      setLoading(false);
+      return result;
+    } catch (error) {
+      setLoading(false);
+      console.error('API Error:', error);
+      alert('Error connecting to server. Using local storage for now.');
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Load all students from Google Sheets
+  const loadStudents = async () => {
+    const result = await callScriptAPI('getStudents');
+    if (result.success) {
+      setStudents(result.students);
+    }
+  };
+
+  // Registration handlers
+  const handleInputChange = (e) => {
+    setCurrentStudent({
+      ...currentStudent,
+      [e.target.name]: e.target.value
+    });
+  };
+
+  const handleRegister = async () => {
+    if (!currentStudent.name || !currentStudent.email || !currentStudent.grade || !currentStudent.instrument) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    const result = await callScriptAPI('registerStudent', { student: currentStudent });
+    
+    if (result.success) {
+      alert('Student registered successfully! Confirmation email sent.');
+      setCurrentStudent({
+        name: '',
+        email: '',
+        grade: '',
+        instrument: '',
+        experience: ''
+      });
+      loadStudents(); // Reload the list
+    } else {
+      alert('Error: ' + result.error);
+    }
+  };
+
+  // Evaluation handlers
+  const startEvaluation = (student) => {
+    setEvaluationStudent(student);
+    setScores({
+      tone: '',
+      technique: '',
+      rhythm: '',
+      musicality: '',
+      sightReading: '',
+      comments: '',
+      placement: ''
+    });
+  };
+
+  const handleScoreChange = (criteriaId, value) => {
+    setScores({
+      ...scores,
+      [criteriaId]: value
+    });
+  };
+
+  const saveEvaluation = async () => {
+    const totalScore = criteria.reduce((sum, c) => sum + (parseInt(scores[c.id]) || 0), 0);
+    
+    const evaluationData = {
+      evaluation: {
+        studentId: evaluationStudent.id,
+        name: evaluationStudent.name,
+        email: evaluationStudent.email,
+        instrument: evaluationStudent.instrument,
+        grade: evaluationStudent.grade,
+        scores: { ...scores },
+        totalScore,
+        placement: scores.placement
+      }
+    };
+    
+    const result = await callScriptAPI('saveEvaluation', evaluationData);
+    
+    if (result.success) {
+      alert('Evaluation saved successfully!');
+      setEvaluationStudent(null);
+      loadStudents(); // Reload to update evaluated status
+    } else {
+      alert('Error saving evaluation: ' + result.error);
+    }
+  };
+
+  // Results & Communication
+  const getPlacementColor = (placement) => {
+    const colors = {
+      'Symphonic Band': 'bg-purple-100 text-purple-800',
+      'Concert Band': 'bg-blue-100 text-blue-800',
+      'Jazz Band': 'bg-amber-100 text-amber-800',
+      'Beginning Band': 'bg-green-100 text-green-800'
+    };
+    return colors[placement] || 'bg-gray-100 text-gray-800';
+  };
+
+  const exportToGoogleSheets = async () => {
+    const result = await callScriptAPI('exportData');
+    if (result.success) {
+      alert('Data is already in Google Sheets!\n\nSpreadsheet URL: ' + result.spreadsheetUrl);
+      if (result.spreadsheetUrl) {
+        window.open(result.spreadsheetUrl, '_blank');
+      }
+    } else {
+      alert('Error: ' + result.error);
+    }
+  };
+
+  const sendResultsEmail = async (student) => {
+    const result = await callScriptAPI('sendResultsEmail', { studentId: student.id });
+    if (result.success) {
+      alert(`Results email sent successfully to ${student.name}!`);
+    } else {
+      alert('Error sending email: ' + result.error);
+    }
+  };
+
+  const evaluatedStudents = students.filter(s => s.evaluated);
+  const pendingStudents = students.filter(s => !s.evaluated);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50">
+      <div className="max-w-7xl mx-auto p-6">
+        {/* Header */}
+        <div className="bg-white rounded-2xl shadow-lg p-8 mb-6">
+          <div className="flex items-center gap-4 mb-2">
+            <div className="bg-gradient-to-br from-indigo-600 to-purple-600 p-3 rounded-xl">
+              <Music className="w-8 h-8 text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Music Audition Manager</h1>
+              <p className="text-gray-600">High School Band Program</p>
+            </div>
+          </div>
+          
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-4 mt-6">
+            <div className="bg-indigo-50 rounded-lg p-4">
+              <div className="text-2xl font-bold text-indigo-600">{students.length}</div>
+              <div className="text-sm text-gray-600">Total Registered</div>
+            </div>
+            <div className="bg-purple-50 rounded-lg p-4">
+              <div className="text-2xl font-bold text-purple-600">{evaluatedStudents.length}</div>
+              <div className="text-sm text-gray-600">Evaluated</div>
+            </div>
+            <div className="bg-pink-50 rounded-lg p-4">
+              <div className="text-2xl font-bold text-pink-600">{pendingStudents.length}</div>
+              <div className="text-sm text-gray-600">Pending</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Navigation Tabs */}
+        <div className="bg-white rounded-2xl shadow-lg mb-6">
+          <div className="flex border-b">
+            {[
+              { id: 'register', label: 'Registration', icon: Users },
+              { id: 'evaluate', label: 'Evaluate', icon: ClipboardCheck },
+              { id: 'results', label: 'Results', icon: Mail }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-6 py-4 font-medium transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-b-2 border-indigo-600 text-indigo-600'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <tab.icon className="w-5 h-5" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="p-6">
+            {/* Registration Tab */}
+            {activeTab === 'register' && (
+              <div className="max-w-2xl">
+                <h2 className="text-2xl font-bold text-gray-900 mb-6">Student Registration</h2>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Student Name *
+                    </label>
+                    <input
+                      type="text"
+                      name="name"
+                      value={currentStudent.name}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      placeholder="Enter student name"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Email Address *
+                    </label>
+                    <input
+                      type="email"
+                      name="email"
+                      value={currentStudent.email}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      placeholder="student@school.edu"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Grade *
+                      </label>
+                      <select
+                        name="grade"
+                        value={currentStudent.grade}
+                        onChange={handleInputChange}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      >
+                        <option value="">Select grade</option>
+                        {grades.map(g => <option key={g} value={g}>{g} Grade</option>)}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Instrument *
+                      </label>
+                      <select
+                        name="instrument"
+                        value={currentStudent.instrument}
+                        onChange={handleInputChange}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      >
+                        <option value="">Select instrument</option>
+                        {instruments.map(i => <option key={i} value={i}>{i}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Years of Experience
+                    </label>
+                    <input
+                      type="text"
+                      name="experience"
+                      value={currentStudent.experience}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      placeholder="e.g., 3 years"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleRegister}
+                    className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:from-indigo-700 hover:to-purple-700 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Register Student
+                  </button>
+                </div>
+
+                {/* Registered Students List */}
+                {students.length > 0 && (
+                  <div className="mt-8">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                      Registered Students ({students.length})
+                    </h3>
+                    <div className="space-y-2">
+                      {students.map(student => (
+                        <div key={student.id} className="bg-gray-50 rounded-lg p-4 flex items-center justify-between">
+                          <div>
+                            <div className="font-medium text-gray-900">{student.name}</div>
+                            <div className="text-sm text-gray-600">
+                              {student.instrument} • {student.grade} Grade
+                            </div>
+                          </div>
+                          <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                            student.evaluated 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {student.evaluated ? 'Evaluated' : 'Pending'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Evaluation Tab */}
+            {activeTab === 'evaluate' && (
+              <div>
+                {!evaluationStudent ? (
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900 mb-6">Select Student to Evaluate</h2>
+                    
+                    {pendingStudents.length === 0 ? (
+                      <div className="text-center py-12 bg-gray-50 rounded-lg">
+                        <ClipboardCheck className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                        <p className="text-gray-600">No students pending evaluation</p>
+                      </div>
+                    ) : (
+                      <div className="grid gap-4">
+                        {pendingStudents.map(student => (
+                          <div key={student.id} className="bg-white border-2 border-gray-200 rounded-lg p-6 hover:border-indigo-300 transition-colors">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h3 className="text-lg font-semibold text-gray-900">{student.name}</h3>
+                                <p className="text-gray-600">
+                                  {student.instrument} • {student.grade} Grade • {student.email}
+                                </p>
+                                {student.experience && (
+                                  <p className="text-sm text-gray-500 mt-1">
+                                    Experience: {student.experience}
+                                  </p>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => startEvaluation(student)}
+                                className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                                Evaluate
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-center justify-between mb-6">
+                      <div>
+                        <h2 className="text-2xl font-bold text-gray-900">Evaluating: {evaluationStudent.name}</h2>
+                        <p className="text-gray-600">{evaluationStudent.instrument} • {evaluationStudent.grade} Grade</p>
+                      </div>
+                      <button
+                        onClick={() => setEvaluationStudent(null)}
+                        className="text-gray-600 hover:text-gray-900"
+                      >
+                        <X className="w-6 h-6" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-6">
+                      {criteria.map(c => (
+                        <div key={c.id} className="bg-gray-50 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="font-medium text-gray-900">{c.name}</label>
+                            <span className="text-sm text-gray-600">Max: {c.max} points</span>
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            max={c.max}
+                            value={scores[c.id]}
+                            onChange={(e) => handleScoreChange(c.id, e.target.value)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                            placeholder={`Score out of ${c.max}`}
+                          />
+                        </div>
+                      ))}
+
+                      <div>
+                        <label className="block font-medium text-gray-900 mb-2">Band Placement</label>
+                        <select
+                          value={scores.placement}
+                          onChange={(e) => setScores({ ...scores, placement: e.target.value })}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="">Select placement</option>
+                          <option value="Symphonic Band">Symphonic Band</option>
+                          <option value="Concert Band">Concert Band</option>
+                          <option value="Jazz Band">Jazz Band</option>
+                          <option value="Beginning Band">Beginning Band</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block font-medium text-gray-900 mb-2">Comments & Feedback</label>
+                        <textarea
+                          value={scores.comments}
+                          onChange={(e) => setScores({ ...scores, comments: e.target.value })}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent h-32"
+                          placeholder="Enter feedback for the student..."
+                        />
+                      </div>
+
+                      <button
+                        onClick={saveEvaluation}
+                        className="w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-3 rounded-lg font-medium hover:from-green-700 hover:to-emerald-700 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Save className="w-5 h-5" />
+                        Save Evaluation
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Results Tab */}
+            {activeTab === 'results' && (
+              <div>
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900">Audition Results</h2>
+                  <button
+                    onClick={exportToGoogleSheets}
+                    className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export to Sheets
+                  </button>
+                </div>
+
+                {evaluatedStudents.length === 0 ? (
+                  <div className="text-center py-12 bg-gray-50 rounded-lg">
+                    <Mail className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">No evaluated students yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {evaluatedStudents
+                      .sort((a, b) => b.totalScore - a.totalScore)
+                      .map(student => (
+                        <div key={student.id} className="bg-white border-2 border-gray-200 rounded-lg p-6">
+                          <div className="flex items-start justify-between mb-4">
+                            <div>
+                              <h3 className="text-lg font-semibold text-gray-900">{student.name}</h3>
+                              <p className="text-gray-600">{student.instrument} • {student.grade} Grade</p>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-3xl font-bold text-indigo-600">{student.totalScore}</div>
+                              <div className="text-sm text-gray-600">out of 100</div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                            {criteria.map(c => (
+                              <div key={c.id} className="bg-gray-50 rounded p-3">
+                                <div className="text-sm text-gray-600">{c.name}</div>
+                                <div className="font-semibold text-gray-900">
+                                  {student.scores[c.id]}/{c.max}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {student.placement && (
+                            <div className="mb-4">
+                              <span className={`inline-block px-4 py-2 rounded-full text-sm font-medium ${getPlacementColor(student.placement)}`}>
+                                {student.placement}
+                              </span>
+                            </div>
+                          )}
+
+                          {student.scores.comments && (
+                            <div className="bg-blue-50 rounded-lg p-4 mb-4">
+                              <div className="text-sm font-medium text-gray-700 mb-1">Comments</div>
+                              <div className="text-gray-600">{student.scores.comments}</div>
+                            </div>
+                          )}
+
+                          <button
+                            onClick={() => sendResultsEmail(student)}
+                            className="w-full bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+                          >
+                            <Mail className="w-4 h-4" />
+                            Send Results Email
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default MusicAuditionApp;
